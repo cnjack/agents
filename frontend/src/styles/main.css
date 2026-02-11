@@ -1,0 +1,435 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --tile-size: 32px;
+  --sprite-size: 32px;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Press Start 2P', monospace;
+  overflow: hidden;
+}
+
+.game-container {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  background: #1a1a2e;
+}
+
+.game-viewport {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: linear-gradient(180deg, #87ceeb 0%, #98d8c8 100%);
+}
+
+.game-canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  border: 4px solid #4a3728;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+}
+
+.ui-sidebar {
+  width: 320px;
+  background: linear-gradient(180deg, #2d1b0e 0%, #1a0f08 100%);
+  border-left: 4px solid #4a3728;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.ui-panel {
+  background: rgba(74, 55, 40, 0.9);
+  border: 2px solid #8b6914;
+  border-radius: 4px;
+  padding: 8px;
+  margin: 8px;
+}
+
+.ui-panel-title {
+  color: #ffd700;
+  font-size: 10px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+/* Pixel art styling */
+.pixel-text {
+  font-family: 'Press Start 2P', monospace;
+  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.5);
+}
+
+.pixel-btn {
+  background: linear-gradient(180deg, #5a8f3a 0%, #3d6b28 100%);
+  border: 2px solid #2d5018;
+  border-bottom-width: 4px;
+  color: white;
+  padding: 8px 16px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.pixel-btn:hover {
+  background: linear-gradient(180deg, #6aa04a 0%, #4d7b38 100%);
+}
+
+.pixel-btn:active {
+  border-bottom-width: 2px;
+  transform: translateY(2px);
+}
+
+/* Inventory grid */
+.inventory-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.inventory-slot {
+  width: 48px;
+  height: 48px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 2px solid #555;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.inventory-slot:hover {
+  border-color: #ffd700;
+}
+
+.inventory-slot.selected {
+  border-color: #00ff00;
+  box-shadow: 0 0 8px rgba(0, 255, 0, 0.5);
+}
+
+.inventory-count {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  font-size: 8px;
+  color: white;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 1px 3px;
+  border-radius: 2px;
+}
+
+/* Status bars */
+.status-bar {
+  height: 16px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 2px solid #333;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.status-bar-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.energy-bar {
+  background: linear-gradient(90deg, #4a7c23 0%, #6aa04a 100%);
+}
+
+/* Time display */
+.time-display {
+  text-align: center;
+  color: white;
+  padding: 8px;
+}
+
+.time-clock {
+  font-size: 16px;
+  color: #ffd700;
+}
+
+.time-date {
+  font-size: 8px;
+  color: #aaa;
+  margin-top: 4px;
+}
+
+/* Quest panel */
+.quest-item {
+  background: rgba(0, 0, 0, 0.3);
+  border-left: 3px solid #ffd700;
+  padding: 8px;
+  margin-bottom: 4px;
+}
+
+.quest-name {
+  color: #ffd700;
+  font-size: 8px;
+  margin-bottom: 4px;
+}
+
+.quest-description {
+  color: #aaa;
+  font-size: 6px;
+  line-height: 1.5;
+}
+
+.quest-progress {
+  color: #4a7c23;
+  font-size: 6px;
+  margin-top: 4px;
+}
+
+/* NPC Dialog - Legacy support */
+.dialog-box {
+  background: rgba(0, 0, 0, 0.9);
+  border: 3px solid #ffd700;
+  border-radius: 4px;
+  padding: 16px;
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80%;
+  max-width: 600px;
+}
+
+.dialog-speaker {
+  color: #ffd700;
+  font-size: 10px;
+  margin-bottom: 8px;
+}
+
+.dialog-text {
+  color: white;
+  font-size: 8px;
+  line-height: 2;
+}
+
+/* NPC Dialog - Enhanced styles */
+.dialog-portrait {
+  width: 64px;
+  height: 64px;
+  border: 3px solid #ffd700;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #4a3728 0%, #2d1b0e 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dialog-portrait-initial {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 24px;
+  color: #ffd700;
+  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.5);
+}
+
+.dialog-mood-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 8px;
+  font-family: 'Press Start 2P', monospace;
+}
+
+.dialog-mood-happy {
+  background: rgba(76, 175, 80, 0.2);
+  border: 1px solid #4caf50;
+  color: #4caf50;
+}
+
+.dialog-mood-neutral {
+  background: rgba(158, 158, 158, 0.2);
+  border: 1px solid #9e9e9e;
+  color: #9e9e9e;
+}
+
+.dialog-mood-sad {
+  background: rgba(33, 150, 243, 0.2);
+  border: 1px solid #2196f3;
+  color: #2196f3;
+}
+
+.dialog-mood-excited {
+  background: rgba(255, 193, 7, 0.2);
+  border: 1px solid #ffc107;
+  color: #ffc107;
+}
+
+.dialog-mood-angry {
+  background: rgba(244, 67, 54, 0.2);
+  border: 1px solid #f44336;
+  color: #f44336;
+}
+
+/* Hearts display */
+.hearts-row {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.heart-icon {
+  font-size: 16px;
+  transition: all 0.3s ease;
+}
+
+.heart-icon.filled {
+  color: #ff4757;
+  text-shadow: 0 0 8px rgba(255, 71, 87, 0.5);
+}
+
+.heart-icon.empty {
+  color: #333;
+}
+
+/* Natural language input */
+.nl-input-container {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 2px solid #4a3728;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.nl-input-container:focus-within {
+  border-color: #ffd700;
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.3);
+}
+
+.nl-input-field {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: white;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+}
+
+.nl-input-field::placeholder {
+  color: #666;
+}
+
+/* Chat bubble styles */
+.chat-bubble {
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 10px;
+  line-height: 1.6;
+  font-family: 'Press Start 2P', monospace;
+  max-width: 80%;
+}
+
+.chat-bubble.npc {
+  background: linear-gradient(135deg, #4a3728 0%, #3d2a1a 100%);
+  border: 2px solid #8b6914;
+  color: white;
+  border-bottom-left-radius: 4px;
+  align-self: flex-start;
+}
+
+.chat-bubble.player {
+  background: linear-gradient(135deg, #2d5016 0%, #1a3a0a 100%);
+  border: 2px solid #4a7c23;
+  color: white;
+  border-bottom-right-radius: 4px;
+  align-self: flex-end;
+}
+
+/* Typing indicator */
+.typing-indicator {
+  display: inline-flex;
+  gap: 4px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 8px;
+}
+
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  background: #ffd700;
+  border-radius: 50%;
+  animation: typing-bounce 1.4s infinite ease-in-out;
+}
+
+.typing-dot:nth-child(1) { animation-delay: 0s; }
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-4px); }
+}
+
+/* Toolbar */
+.toolbar {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 4px;
+  background: rgba(45, 27, 14, 0.95);
+  padding: 8px;
+  border-radius: 4px;
+  border: 2px solid #8b6914;
+}
+
+.tool-slot {
+  width: 48px;
+  height: 48px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 2px solid #555;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.tool-slot:hover {
+  border-color: #ffd700;
+}
+
+.tool-slot.active {
+  border-color: #00ff00;
+  box-shadow: 0 0 8px rgba(0, 255, 0, 0.5);
+}
+
+.tool-icon {
+  font-size: 20px;
+}
+
+/* Animations */
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.animate-bounce-slow {
+  animation: bounce 2s ease-in-out infinite;
+}
+
+.animate-pulse-slow {
+  animation: pulse 2s ease-in-out infinite;
+}
