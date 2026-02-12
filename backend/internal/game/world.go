@@ -108,27 +108,64 @@ func (w *World) setupTrees() {
 	}
 }
 
-// setupBuildings places buildings on the map (matching frontend MAP_FEATURES)
+// BuildingLayout defines a building's layout for placement
+type BuildingLayout struct {
+	ID          string
+	Name        string
+	Type        string
+	X           int
+	Y           int
+	Width       int
+	Height      int
+	EntranceX   int
+	EntranceY   int
+	Owner       string
+	Interactive bool
+}
+
+// buildingCollision checks if two buildings overlap
+func buildingCollision(b1, b2 BuildingLayout) bool {
+	// AABB collision detection
+	b1Right := b1.X + b1.Width
+	b1Bottom := b1.Y + b1.Height
+	b2Right := b2.X + b2.Width
+	b2Bottom := b2.Y + b2.Height
+
+	// Add minimum spacing (2 tiles between buildings)
+	spacing := 2
+
+	return !(b1Right+spacing <= b2.X ||
+		b2Right+spacing <= b1.X ||
+		b1Bottom+spacing <= b2.Y ||
+		b2Bottom+spacing <= b1.Y)
+}
+
+// setupBuildings places buildings on the map with collision detection
 func (w *World) setupBuildings() {
-	w.buildings = []models.Building{
+	// Define all desired building layouts
+	buildingLayouts := []BuildingLayout{
 		{
 			ID:          "community_center",
 			Name:        "Community Center",
 			Type:        "community_center",
-			Position:    models.Position{X: 18, Y: 4},
+			X:           18,
+			Y:           4,
 			Width:       12,
 			Height:      8,
-			Entrance:    models.Position{X: 24, Y: 12},
+			EntranceX:   24,
+			EntranceY:   12,
 			Interactive: true,
 		},
 		{
 			ID:          "pierre_shop",
 			Name:        "Pierre's General Store",
 			Type:        "shop",
-			Position:    models.Position{X: 4, Y: 16},
+			X:           4,
+			Y:           16,
 			Width:       8,
 			Height:      6,
-			Entrance:    models.Position{X: 8, Y: 22},
+			EntranceX:   8,
+			EntranceY:   22,
 			Owner:       "pierre",
 			Interactive: true,
 		},
@@ -136,10 +173,12 @@ func (w *World) setupBuildings() {
 			ID:          "carpenter_shop",
 			Name:        "Robin's Carpenter Shop",
 			Type:        "carpenter",
-			Position:    models.Position{X: 6, Y: 4},
+			X:           6,
+			Y:           4,
 			Width:       8,
 			Height:      6,
-			Entrance:    models.Position{X: 10, Y: 10},
+			EntranceX:   10,
+			EntranceY:   10,
 			Owner:       "robin",
 			Interactive: true,
 		},
@@ -147,10 +186,12 @@ func (w *World) setupBuildings() {
 			ID:          "fish_shop",
 			Name:        "Willy's Fish Shop",
 			Type:        "fish_shop",
-			Position:    models.Position{X: 2, Y: 36},
+			X:           2,
+			Y:           36,
 			Width:       8,
 			Height:      6,
-			Entrance:    models.Position{X: 6, Y: 42},
+			EntranceX:   6,
+			EntranceY:   42,
 			Owner:       "willy",
 			Interactive: true,
 		},
@@ -158,20 +199,25 @@ func (w *World) setupBuildings() {
 			ID:          "saloon",
 			Name:        "The Stardrop Saloon",
 			Type:        "saloon",
-			Position:    models.Position{X: 36, Y: 20},
+			X:           36,
+			Y:           20,
 			Width:       8,
 			Height:      6,
-			Entrance:    models.Position{X: 40, Y: 26},
+			EntranceX:   40,
+			EntranceY:   26,
 			Interactive: true,
 		},
 		{
 			ID:          "haley_house",
 			Name:        "Haley's House",
 			Type:        "house",
-			Position:    models.Position{X: 28, Y: 6},
+			// Moved from (28, 6) to avoid collision with community_center
+			X:           2,
+			Y:           28,
 			Width:       6,
 			Height:      5,
-			Entrance:    models.Position{X: 31, Y: 11},
+			EntranceX:   5,
+			EntranceY:   33,
 			Owner:       "haley",
 			Interactive: false,
 		},
@@ -179,12 +225,47 @@ func (w *World) setupBuildings() {
 			ID:          "house_2",
 			Name:        "House",
 			Type:        "house",
-			Position:    models.Position{X: 32, Y: 12},
+			// Moved from (32, 12) to avoid collision with community_center
+			X:           40,
+			Y:           6,
 			Width:       6,
 			Height:      5,
-			Entrance:    models.Position{X: 35, Y: 17},
+			EntranceX:   43,
+			EntranceY:   11,
 			Interactive: false,
 		},
+	}
+
+	// Place buildings and validate no collisions
+	for _, layout := range buildingLayouts {
+		// Check collision with already placed buildings
+		collision := false
+		for _, existing := range w.buildings {
+			existingLayout := BuildingLayout{
+				X:      existing.Position.X,
+				Y:      existing.Position.Y,
+				Width:  existing.Width,
+				Height: existing.Height,
+			}
+			if buildingCollision(layout, existingLayout) {
+				collision = true
+				break
+			}
+		}
+
+		if !collision {
+			w.buildings = append(w.buildings, models.Building{
+				ID:          layout.ID,
+				Name:        layout.Name,
+				Type:        layout.Type,
+				Position:    models.Position{X: layout.X, Y: layout.Y},
+				Width:       layout.Width,
+				Height:      layout.Height,
+				Entrance:    models.Position{X: layout.EntranceX, Y: layout.EntranceY},
+				Owner:       layout.Owner,
+				Interactive: layout.Interactive,
+			})
+		}
 	}
 
 	// Mark building tiles as occupied

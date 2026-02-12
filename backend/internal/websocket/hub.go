@@ -37,6 +37,7 @@ type Hub struct {
 	register   chan *Client
 	unregister chan *Client
 	mu         sync.RWMutex
+	movChan     chan models.NPCMovementUpdate // NPC movement updates from engine
 }
 
 // NewHub creates a new Hub
@@ -46,6 +47,7 @@ func NewHub() *Hub {
 		broadcast:  make(chan []byte, 256),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
+		movChan:     make(chan models.NPCMovementUpdate, 100),
 	}
 }
 
@@ -82,6 +84,10 @@ func (h *Hub) Run() {
 				}
 			}
 			h.mu.RUnlock()
+
+		case movUpdate := <-h.movChan:
+			// Broadcast NPC movement update to all clients
+			h.broadcastNPCMovement(movUpdate)
 
 		case <-ticker.C:
 			// Periodic state broadcasts are handled by BroadcastState
@@ -124,6 +130,35 @@ func (h *Hub) BroadcastMessage(msgType string, data interface{}) {
 
 	h.broadcast <- jsonData
 }
+
+// broadcastNPCMovement broadcasts NPC movement update to all clients
+func (h *Hub) broadcastNPCMovement(mov models.NPCMovementUpdate) {
+	message := map[string]interface{}{
+		"type": "npc_movement",
+		"data": mov,
+	}
+
+	jsonData, err := json.Marshal(message)
+	if err != nil {
+		log.Printf("Error marshaling NPC movement: %v", err)
+		return
+	}
+
+	h.mu.Lock()
+	h.broadcast <- jsonData
+	h.mu.Unlock()
+}
+
+// SetMovementChannel sets the movement update channel from engine
+func (h *Hub) SetMovementChannel(movChan chan models.NPCMovementUpdate) {
+	go func() {
+		for movUpdate := range movChan {
+			h.broadcastNPCMovement(movUpdate)
+		}
+	}()
+}
+
+// HandleWebSocket handles WebSocket connections
 
 // HandleWebSocket handles WebSocket connections
 func HandleWebSocket(hub *Hub, engine *game.Engine, c *gin.Context) {

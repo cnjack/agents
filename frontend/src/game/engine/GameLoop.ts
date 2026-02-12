@@ -43,6 +43,16 @@ export class GameLoop {
     this.onTick = callback
   }
 
+  // Get current camera position
+  getCameraPosition(): { x: number; y: number } {
+    return this.renderer.getCameraPosition()
+  }
+
+  // Get hovered agent for rendering highlights
+  setHoveredAgent(agentId: string | null) {
+    this.renderer.setHoveredAgent(agentId)
+  }
+
   private loop = () => {
     if (!this.running) return
 

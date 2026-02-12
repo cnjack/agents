@@ -67,10 +67,19 @@ func SetupRouter(engine *game.Engine, wsHub *websocket.Hub, aiManager *aiservice
 		v1.GET("/npc/interactions", handler.GetNPCInteractions)
 		v1.POST("/npc/interactions/trigger", handler.TriggerNPCInteraction)
 
+		// Pathfinding endpoints
+		v1.POST("/pathfinding/find", handler.FindPath)
+		v1.GET("/npc/:id/movement", handler.GetNPCMovement)
+
 		// WebSocket endpoint
 		v1.GET("/ws", func(c *gin.Context) {
 			websocket.HandleWebSocket(wsHub, engine, c)
 		})
+
+	// Connect engine movement channel to hub for broadcasting
+	wsHub.SetMovementChannel(engine.MovementUpdateChannel())
+
+	return router
 	}
 
 	// Health check

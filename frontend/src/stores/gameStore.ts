@@ -48,6 +48,28 @@ export const useGameStore = defineStore('game', () => {
     isLoading.value = false
   }
 
+  // Update single NPC position for smooth movement animation
+  function updateNPCMovement(movement: {
+    npc_id: string
+    old_pos: { x: number; y: number }
+    new_pos: { x: number; y: number }
+    direction: string
+    is_moving: boolean
+    path_ended?: boolean
+  }) {
+    if (!gameState.value) return
+
+    const npcIndex = gameState.value.npcs.findIndex(n => n.id === movement.npc_id)
+    if (npcIndex === -1) return
+
+    const npc = gameState.value.npcs[npcIndex]
+    // Store last position for interpolation
+    npc.last_position = { x: movement.old_pos.x, y: movement.old_pos.y }
+    npc.position = { x: movement.new_pos.x, y: movement.new_pos.y }
+    npc.direction = movement.direction as Direction
+    npc.is_moving = movement.is_moving
+  }
+
   function setConnected(connected: boolean) {
     isConnected.value = connected
   }
@@ -126,6 +148,26 @@ export const useGameStore = defineStore('game', () => {
     return executeAction({ type: 'sleep', params: {} })
   }
 
+  async function useTool(tool: string): Promise<boolean> {
+    return executeAction({ type: 'use_tool', params: { tool } })
+  }
+
+  async function harvest(): Promise<boolean> {
+    return executeAction({ type: 'harvest', params: {} })
+  }
+
+  async function plant(seed: string): Promise<boolean> {
+    return executeAction({ type: 'plant', params: { seed } })
+  }
+
+  async function buy(item: string, quantity: number): Promise<boolean> {
+    return executeAction({ type: 'buy', params: { item, quantity } })
+  }
+
+  async function sell(item: string, quantity: number): Promise<boolean> {
+    return executeAction({ type: 'sell', params: { item, quantity } })
+  }
+
   async function resetGame(): Promise<void> {
     try {
       const response = await fetch('/api/v1/game/reset', { method: 'POST' })
@@ -157,6 +199,7 @@ export const useGameStore = defineStore('game', () => {
     dateString,
     // Actions
     updateState,
+    updateNPCMovement,
     setConnected,
     setError,
     addMessage,
@@ -169,6 +212,11 @@ export const useGameStore = defineStore('game', () => {
     acceptQuest,
     wait,
     sleep,
+    useTool,
+    harvest,
+    plant,
+    buy,
+    sell,
     resetGame,
   }
 })

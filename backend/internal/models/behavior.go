@@ -155,3 +155,24 @@ type BehaviorContext struct {
 	Personality     NPCPersonality  `json:"personality"`
 	MoodState       NPCMoodState    `json:"mood_state"`
 }
+
+// NPCMovementState tracks NPC movement along a path
+type NPCMovementState struct {
+	NPCID        string         `json:"npc_id"`
+	IsMoving     bool           `json:"is_moving"`
+	CurrentPath  []Position     `json:"current_path,omitempty"`
+	TargetPos    Position       `json:"target_pos,omitempty"`
+	MoveSpeed    float64        `json:"move_speed"` // tiles per tick
+	LastMoveTick int64          `json:"last_move_tick"`
+	StartedAt    TimeState      `json:"started_at"`
+}
+
+// NPCMovementUpdate represents a position update for an NPC
+type NPCMovementUpdate struct {
+	NPCID    string   `json:"npc_id"`
+	OldPos    Position `json:"old_pos"`
+	NewPos    Position `json:"new_pos"`
+	Direction  Direction `json:"direction"`
+	IsMoving  bool     `json:"is_moving"`
+	PathEnded bool     `json:"path_ended,omitempty"`
+}

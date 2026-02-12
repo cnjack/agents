@@ -1,6 +1,68 @@
-import type { GameState, TileType, CropStage, Direction, NPCState } from '@/types/game'
+import type { GameState, TileType, CropStage, Direction, NPCState, RenderNPCState } from '@/types/game'
 
 const TILE_SIZE = 48
+
+// ============== NPC INTERPOLATION STATE ==============
+// Client-side interpolated NPC states for smooth animation
+const npcRenderStates = new Map<string, RenderNPCState>()
+
+// Get or create render state for an NPC
+function getNPCRenderState(npc: NPCState): RenderNPCState {
+  const id = npc.id
+  if (!npcRenderStates.has(id)) {
+    // First time seeing this NPC - initialize at current position
+    npcRenderStates.set(id, {
+      ...npc,
+      renderX: npc.position.x,
+      renderY: npc.position.y,
+    })
+  }
+
+  const renderState = npcRenderStates.get(id)!
+
+  // Check if NPC position changed (server update)
+  const posChanged = renderState.position.x !== npc.position.x ||
+                     renderState.position.y !== npc.position.y
+
+  if (posChanged) {
+    // Store previous position and start moving to new position
+    renderState.last_position = { ...renderState.position }
+    renderState.position = { ...npc.position }
+    renderState.target_position = { ...npc.position }
+    renderState.is_moving = true
+  }
+
+  return renderState
+}
+
+// Update NPC interpolation (call every frame)
+function updateNPCInterpolation(deltaTime: number) {
+  const lerpFactor = 10 * deltaTime // Adjust for movement speed
+
+  for (const state of npcRenderStates.values()) {
+    if (state.is_moving && state.target_position) {
+      // Interpolate towards target
+      const dx = state.target_position.x - state.renderX
+      const dy = state.target_position.y - state.renderY
+
+      state.renderX += dx * Math.min(lerpFactor, 1)
+      state.renderY += dy * Math.min(lerpFactor, 1)
+
+      // Check if we've reached the target (with small tolerance)
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      if (dist < 0.05) {
+        state.renderX = state.target_position.x
+        state.renderY = state.target_position.y
+        state.is_moving = false
+      }
+    }
+  }
+}
+
+// Remove NPC render state (when NPC is removed from game)
+function removeNPCRenderState(id: string) {
+  npcRenderStates.delete(id)
+}
 
 // ============== PIXEL ART ASSETS (Base64 encoded) ==============
 // These are simple pixel art patterns encoded as data URLs for the tiles
@@ -1144,8 +1206,11 @@ export class Renderer {
   private targetCameraX = 0
   private targetCameraY = 0
   private frame = 0
+  private hoveredAgentId: string | null = null
+  private lastTime = performance.now()
 
   // Map data
+  // Building positions must match backend world.go setupBuildings()
   private readonly MAP_DATA = {
     buildings: [
       { x: 18, y: 4, w: 12, h: 8, type: 'community_center' },
@@ -1153,8 +1218,11 @@ export class Renderer {
       { x: 6, y: 4, w: 8, h: 6, type: 'carpenter' },
       { x: 2, y: 36, w: 8, h: 6, type: 'fish_shop' },
       { x: 36, y: 20, w: 8, h: 6, type: 'saloon' },
-      { x: 28, y: 6, w: 6, h: 5, type: 'house' },
-      { x: 32, y: 12, w: 6, h: 5, type: 'house' },
+      // Fixed: Moved houses to avoid collision with community_center
+      // haley_house: (28, 6) -> (2, 28)
+      // house_2: (32, 12) -> (40, 6)
+      { x: 2, y: 28, w: 6, h: 5, type: 'house' },
+      { x: 40, y: 6, w: 6, h: 5, type: 'house' },
     ],
     trees: [
       { x: 1, y: 1 }, { x: 1, y: 10 }, { x: 1, y: 20 }, { x: 1, y: 28 },
@@ -1198,6 +1266,14 @@ export class Renderer {
   render(state: GameState) {
     const { ctx, canvas } = this
     this.frame++
+
+    // Calculate delta time for smooth interpolation
+    const currentTime = performance.now()
+    const deltaTime = Math.min((currentTime - this.lastTime) / 1000, 0.1) // Cap at 100ms
+    this.lastTime = currentTime
+
+    // Update NPC interpolation
+    updateNPCInterpolation(deltaTime)
 
     // Camera follows player
     this.targetCameraX = state.player.position.x * TILE_SIZE - canvas.width / 2
@@ -1245,7 +1321,13 @@ export class Renderer {
 
     // Draw NPCs
     for (const npc of state.npcs) {
-      this.drawCharacter(npc.position.x, npc.position.y, 'npc', npc.id, npc.direction)
+      const renderState = getNPCRenderState(npc)
+      // Use interpolated position for smooth animation
+      this.drawCharacter(renderState.renderX, renderState.renderY, 'npc', npc.id, npc.direction)
+      // Draw highlight if hovered
+      if (this.hoveredAgentId === npc.id) {
+        this.drawHighlight(ctx, renderState.renderX, renderState.renderY)
+      }
     }
 
     // Draw player
@@ -1614,12 +1696,64 @@ export class Renderer {
     ctx.arc(mx + state.player.position.x * scaleX, my + state.player.position.y * scaleY, 4, 0, Math.PI * 2)
     ctx.fill()
 
-    // Draw NPCs
+    // Draw NPCs (using interpolated positions)
     ctx.fillStyle = '#9370db'
     for (const npc of state.npcs) {
+      const renderState = getNPCRenderState(npc)
       ctx.beginPath()
-      ctx.arc(mx + npc.position.x * scaleX, my + npc.position.y * scaleY, 3, 0, Math.PI * 2)
+      ctx.arc(mx + renderState.renderX * scaleX, my + renderState.renderY * scaleY, 3, 0, Math.PI * 2)
       ctx.fill()
     }
+  }
+
+  // Public methods for mouse interaction
+  getCameraPosition(): { x: number; y: number } {
+    return { x: this.cameraX, y: this.cameraY }
+  }
+
+  setHoveredAgent(agentId: string | null) {
+    this.hoveredAgentId = agentId
+  }
+
+  // Clear NPC interpolation cache (call when resetting/changing maps)
+  clearNPCStates() {
+    npcRenderStates.clear()
+  }
+
+  // Remove a specific NPC from interpolation cache
+  removeNPCState(id: string) {
+    removeNPCRenderState(id)
+  }
+
+  // Draw highlight effect for hovered agent
+  private drawHighlight(ctx: CanvasRenderingContext2D, tileX: number, tileY: number) {
+    const px = tileX * TILE_SIZE
+    const py = tileY * TILE_SIZE
+
+    // Pulsing glow effect
+    const pulse = Math.sin(this.frame * 0.1) * 0.3 + 0.7
+    const alpha = 0.3 * pulse
+
+    // Outer glow
+    ctx.fillStyle = `rgba(255, 215, 0, ${alpha * 0.5})`
+    ctx.beginPath()
+    ctx.ellipse(px + TILE_SIZE / 2, py + TILE_SIZE, TILE_SIZE * 0.8, TILE_SIZE * 0.2, 0, 0, Math.PI * 2)
+    ctx.fill()
+
+    // Inner highlight ring
+    ctx.strokeStyle = `rgba(255, 215, 0, ${alpha})`
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.arc(px + TILE_SIZE / 2, py + TILE_SIZE / 2, TILE_SIZE * 0.6, 0, Math.PI * 2)
+    ctx.stroke()
+
+    // Small indicator above character
+    ctx.fillStyle = `rgba(255, 215, 0, ${alpha + 0.2})`
+    ctx.beginPath()
+    ctx.moveTo(px + TILE_SIZE / 2, py - 8)
+    ctx.lineTo(px + TILE_SIZE / 2 - 6, py - 16)
+    ctx.lineTo(px + TILE_SIZE / 2 + 6, py - 16)
+    ctx.closePath()
+    ctx.fill()
   }
 }

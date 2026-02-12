@@ -38,7 +38,12 @@ export interface InventoryItem {
 export interface PlayerState {
   position: Position
   direction: Direction
+  energy: number
+  max_energy: number
   gold: number
+  inventory: InventoryItem[]
+  tools: string[]
+  active_tool: string
   gifts: InventoryItem[]
   friendship: Record<string, number>  // NPC ID -> friendship points
 }
@@ -60,6 +65,16 @@ export interface NPCState {
   location: string
   dialogue: string[]
   schedule?: ScheduleEntry[]
+  // For client-side animation interpolation
+  target_position?: Position  // Server-sent target for interpolation
+  last_position?: Position   // Previous position for interpolation
+  is_moving?: boolean       // Whether NPC is currently moving
+}
+
+// Client-side interpolated NPC state for rendering
+export interface RenderNPCState extends NPCState {
+  renderX: number   // Interpolated X position
+  renderY: number   // Interpolated Y position
 }
 
 export interface Objective {
@@ -126,6 +141,11 @@ export interface Action {
 
 export type ActionType =
   | 'move'
+  | 'use_tool'
+  | 'plant'
+  | 'harvest'
+  | 'buy'
+  | 'sell'
   | 'talk'
   | 'give_gift'
   | 'accept_quest'
@@ -139,6 +159,10 @@ export interface ActionParams {
   gift_item?: string
   quest_id?: string
   ticks?: number
+  tool?: string
+  seed?: string
+  item?: string
+  quantity?: number
 }
 
 export interface ActionResult {

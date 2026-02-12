@@ -542,3 +542,60 @@ func (h *Handler) GetBehaviorFactors(c *gin.Context) {
 		"context":  context,
 	})
 }
+
+// FindPathRequest represents a pathfinding request
+type FindPathRequest struct {
+	NPCID  string          `json:"npc_id"`
+	Start  models.Position `json:"start"`
+	Goal   models.Position `json:"goal"`
+}
+
+// FindPath handles pathfinding requests
+func (h *Handler) FindPath(c *gin.Context) {
+	var req FindPathRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	path := h.engine.FindPath(req.NPCID, req.Start, req.Goal)
+
+	if path == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "No path found",
+			"path":    []models.Position{},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":  true,
+		"npc_id":   req.NPCID,
+		"path":     path.Positions,
+		"length":   len(path.Positions),
+	})
+}
+
+// GetNPCMovement returns the current movement state for an NPC
+func (h *Handler) GetNPCMovement(c *gin.Context) {
+	npcID := c.Param("id")
+
+	movState := h.engine.GetNPCMovementState(npcID)
+
+	if movState == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"npc_id":  npcID,
+			"is_moving": false,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"npc_id":  npcID,
+		"is_moving": movState.IsMoving,
+		"target_pos": movState.TargetPos,
+		"path":      movState.CurrentPath,
+		"speed":     movState.MoveSpeed,
+	})
+}

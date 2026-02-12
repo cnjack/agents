@@ -16,11 +16,14 @@ type Engine struct {
 	timeSystem    *TimeSystem
 	questSystem   *QuestSystem
 	friendshipSystem *FriendshipSystem
+	pathManager   *PathManager
+	npcMovementStates map[string]*models.NPCMovementState
 
 	ticker        *time.Ticker
 	running       bool
 	eventChan     chan models.GameEvent
 	actionChan    chan *models.Action
+	movementUpdateChan chan models.NPCMovementUpdate
 }
 
 // Config returns default game configuration
@@ -48,11 +51,16 @@ func NewEngine() *Engine {
 		timeSystem: NewTimeSystem(),
 		questSystem: NewQuestSystem(),
 		friendshipSystem: NewFriendshipSystem(),
+		pathManager: NewPathManager(nil),
+		npcMovementStates: make(map[string]*models.NPCMovementState),
 		eventChan:  make(chan models.GameEvent, 100),
 		actionChan: make(chan *models.Action, 100),
+		movementUpdateChan: make(chan models.NPCMovementUpdate, 100),
 	}
 
 	engine.initializeState(config)
+	// Initialize path manager after world is created
+	engine.pathManager = NewPathManager(engine.world)
 	return engine
 }
 
@@ -259,7 +267,7 @@ func (e *Engine) tick() {
 	}
 }
 
-// updateNPCs updates NPC positions based on schedule
+// updateNPCs updates NPC positions based on schedule with pathfinding
 func (e *Engine) updateNPCs() {
 	for i := range e.state.NPCs {
 		npc := &e.state.NPCs[i]
@@ -267,15 +275,153 @@ func (e *Engine) updateNPCs() {
 			continue
 		}
 
-		// Find current schedule entry
-		for _, entry := range npc.Schedule {
-			if entry.Hour == e.state.Time.Hour && entry.Minute == e.state.Time.Minute {
-				npc.Position = entry.Position
-				npc.Location = entry.Location
-				break
+		// Check if NPC needs to move to a new scheduled location
+		e.updateNPCScheduleMovement(npc)
+	}
+
+	// Update NPC movement along paths
+	e.updateNPCMovement()
+}
+
+// updateNPCScheduleMovement checks if NPC needs to start moving to scheduled location
+func (e *Engine) updateNPCScheduleMovement(npc *models.NPCState) {
+	// Find current schedule entry
+	var targetEntry *models.ScheduleEntry
+	for _, entry := range npc.Schedule {
+		entryMinutes := entry.Hour*60 + entry.Minute
+		currentMinutes := e.state.Time.Hour*60 + e.state.Time.Minute
+
+		// Find the most recent schedule entry (last one before or at current time)
+		if entryMinutes <= currentMinutes {
+			targetEntry = &entry
+		}
+	}
+
+	if targetEntry == nil {
+		return
+	}
+
+	// Check if we already have a path for this NPC
+	movState := e.npcMovementStates[npc.ID]
+	if movState != nil && movState.IsMoving {
+		return // Already moving
+	}
+
+	// Check if NPC is not at target position
+	if npc.Position.X != targetEntry.Position.X || npc.Position.Y != targetEntry.Position.Y {
+		// Need to move - find path
+		path := e.pathManager.FindAndSetPath(npc.ID, npc.Position, targetEntry.Position)
+
+		if path != nil && len(path.Positions) > 0 {
+			// Initialize movement state
+			e.npcMovementStates[npc.ID] = &models.NPCMovementState{
+				NPCID:       npc.ID,
+				IsMoving:     true,
+				CurrentPath:  path.Positions,
+				TargetPos:    targetEntry.Position,
+				MoveSpeed:    0.1, // Move speed (tiles per tick)
+				StartedAt:    e.state.Time,
 			}
 		}
 	}
+
+	// Update location name
+	npc.Location = targetEntry.Location
+}
+
+// updateNPCMovement updates NPC positions along their paths
+func (e *Engine) updateNPCMovement() {
+	for npcID, movState := range e.npcMovementStates {
+		if !movState.IsMoving {
+			continue
+		}
+
+		// Find NPC in state
+		var npc *models.NPCState
+		for i := range e.state.NPCs {
+			if e.state.NPCs[i].ID == npcID {
+				npc = &e.state.NPCs[i]
+				break
+			}
+		}
+		if npc == nil {
+			delete(e.npcMovementStates, npcID)
+			continue
+		}
+
+		// Get next position from path
+		nextPos := e.pathManager.GetNextPosition(npcID, npc.Position)
+		if nextPos == nil {
+			// Path complete or no path
+			movState.IsMoving = false
+			e.npcMovementStates[npcID].IsMoving = false
+
+			// Send update notification
+			select {
+			case e.movementUpdateChan <- models.NPCMovementUpdate{
+				NPCID:    npcID,
+				OldPos:    npc.Position,
+				NewPos:    npc.Position,
+				Direction:  npc.Direction,
+				IsMoving:  false,
+				PathEnded: true,
+			}:
+			default:
+			}
+			continue
+		}
+
+		// Calculate direction
+		direction := e.calculateDirection(npc.Position, *nextPos)
+
+		// Update NPC position
+		oldPos := npc.Position
+		npc.Position = *nextPos
+		npc.Direction = direction
+
+		// Send movement update
+		select {
+		case e.movementUpdateChan <- models.NPCMovementUpdate{
+			NPCID:   npcID,
+			OldPos:   oldPos,
+			NewPos:   *nextPos,
+			Direction: direction,
+			IsMoving: true,
+		}:
+		default:
+		}
+	}
+}
+
+// calculateDirection determines the direction from pos1 to pos2
+func (e *Engine) calculateDirection(pos1, pos2 models.Position) models.Direction {
+	dx := pos2.X - pos1.X
+	dy := pos2.Y - pos1.Y
+
+	if dx == 0 && dy < 0 {
+		return models.DirectionUp
+	}
+	if dx == 0 && dy > 0 {
+		return models.DirectionDown
+	}
+	if dy == 0 && dx < 0 {
+		return models.DirectionLeft
+	}
+	if dy == 0 && dx > 0 {
+		return models.DirectionRight
+	}
+
+	// Diagonal - prefer primary direction
+	if abs(dx) > abs(dy) {
+		if dx > 0 {
+			return models.DirectionRight
+		}
+		return models.DirectionLeft
+	}
+	if dy > 0 {
+		return models.DirectionDown
+	}
+	return models.DirectionUp
 }
 
 // processAction processes an action from the action channel
@@ -420,4 +566,58 @@ func (e *Engine) EndDay() {
 
 	// Advance to next day
 	e.timeSystem.AdvanceDay(&e.state.Time)
+}
+
+// MovementUpdateChannel returns the channel for NPC movement updates
+func (e *Engine) MovementUpdateChannel() chan models.NPCMovementUpdate {
+	return e.movementUpdateChan
+}
+
+// FindPath finds a path from start to end for an NPC
+func (e *Engine) FindPath(npcID string, start, goal models.Position) *Path {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	path := e.pathManager.FindAndSetPath(npcID, start, goal)
+	return path
+}
+
+// GetNPCMovementState returns the movement state for an NPC
+func (e *Engine) GetNPCMovementState(npcID string) *models.NPCMovementState {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	return e.npcMovementStates[npcID]
+}
+
+// SetNPCPath manually sets a path for an NPC
+func (e *Engine) SetNPCPath(npcID string, path *Path) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.pathManager.SetPath(npcID, path)
+
+	if path != nil && len(path.Positions) > 0 {
+		e.npcMovementStates[npcID] = &models.NPCMovementState{
+			NPCID:       npcID,
+			IsMoving:     true,
+			CurrentPath:  path.Positions,
+			TargetPos:    path.Positions[len(path.Positions)-1],
+			MoveSpeed:    0.1,
+			StartedAt:    e.state.Time,
+		}
+	}
+}
+
+// PathManager returns the path manager
+func (e *Engine) PathManager() *PathManager {
+	return e.pathManager
+}
+
+// abs returns the absolute value of an integer
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
 }

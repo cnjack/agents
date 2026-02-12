@@ -52,6 +52,9 @@ export function connectWebSocket() {
         if (data.message) {
           store.addMessage(data.message)
         }
+      } else if (data.type === 'npc_movement') {
+        // Handle NPC movement update for smooth animation
+        store.updateNPCMovement(data.data)
       } else {
         // Direct state update
         store.updateState(data as GameState)
