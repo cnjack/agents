@@ -5,11 +5,12 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"stardew-agent/internal/game"
+	aiservice "stardew-agent/internal/services/ai"
 	"stardew-agent/internal/websocket"
 )
 
 // SetupRouter sets up the API router
-func SetupRouter(engine *game.Engine, wsHub *websocket.Hub) *gin.Engine {
+func SetupRouter(engine *game.Engine, wsHub *websocket.Hub, aiManager *aiservice.ServiceManager) *gin.Engine {
 	router := gin.Default()
 
 	// CORS middleware
@@ -27,7 +28,14 @@ func SetupRouter(engine *game.Engine, wsHub *websocket.Hub) *gin.Engine {
 
 	// Create handlers
 	handler := NewHandler(engine)
-	aiHandler := NewAIHandler(engine)
+
+	// Create AI handler with service manager
+	var aiHandler *AIHandler
+	if aiManager != nil {
+		aiHandler = NewAIHandlerWithManager(engine, aiManager)
+	} else {
+		aiHandler = NewAIHandler(engine)
+	}
 
 	// API v1 routes
 	v1 := router.Group("/api/v1")
@@ -48,6 +56,10 @@ func SetupRouter(engine *game.Engine, wsHub *websocket.Hub) *gin.Engine {
 		v1.POST("/ai/interpret", aiHandler.InterpretNaturalLanguage)
 		v1.POST("/ai/execute", aiHandler.ExecuteNLCommand)
 		v1.POST("/ai/interact", aiHandler.HandleComplexInteraction)
+
+		// AI provider management
+		v1.GET("/ai/providers", aiHandler.ListProviders)
+		v1.GET("/ai/providers/:name/health", aiHandler.CheckProviderHealth)
 
 		// NPC endpoints
 		v1.GET("/npc/:id/mood", aiHandler.GetNPCMood)

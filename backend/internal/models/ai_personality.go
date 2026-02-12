@@ -1,5 +1,32 @@
 package models
 
+import "time"
+
+// Character represents a game character with full AI-driven properties
+type Character struct {
+	ID               string             `json:"id"`
+	Name             string             `json:"name"`
+	Role             string             `json:"role"`
+	Age              string             `json:"age"`
+	Gender           string             `json:"gender"`
+	Traits           []string           `json:"traits"`
+	Values           []string           `json:"values"`
+	Dislikes         []string           `json:"dislikes"`
+	Fears            []string           `json:"fears,omitempty"`
+	Hopes            []string           `json:"hopes,omitempty"`
+	Background       string             `json:"background"`
+	Secrets          []string           `json:"secrets,omitempty"`
+	SpeechStyle      string             `json:"speech_style"`
+	Hobby            string             `json:"hobby"`
+	GiftPreferences  GiftPreferences    `json:"gift_preferences"`
+	DialogueThemes   DialogueThemes     `json:"dialogue_themes"`
+	Schedule         []ScheduleEntry    `json:"schedule,omitempty"`
+	MaxFriendship    int                `json:"max_friendship"`
+	CharacterArc     string             `json:"character_arc,omitempty"`
+	CreatedAt        time.Time          `json:"created_at,omitempty"`
+	UpdatedAt        time.Time          `json:"updated_at,omitempty"`
+}
+
 // NPCDialogueProfile defines the personality profile of an NPC for AI-driven dialogue
 // This is separate from the behavior-focused NPCPersonality in behavior.go
 type NPCDialogueProfile struct {

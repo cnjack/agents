@@ -15,27 +15,44 @@ import (
 
 // AIHandler contains AI-related API handlers
 type AIHandler struct {
-	engine          *game.Engine
+	engine     *game.Engine
+	aiManager  *ai.ServiceManager
+	moodSystem *ai.MoodSystem
+	profiles   map[string]models.NPCDialogueProfile
+
+	// Legacy services (for backward compatibility)
 	dialogueService *ai.DialogueService
-	moodSystem      *ai.MoodSystem
 	nlpService      *ai.NLPService
-	profiles        map[string]models.NPCDialogueProfile
 }
 
-// NewAIHandler creates a new AI handler
+// NewAIHandler creates a new AI handler (legacy, uses mock)
 func NewAIHandler(engine *game.Engine) *AIHandler {
-	// Get dialogue profiles from game package
 	profiles := game.GetAllDialogueProfiles()
-
-	// Create mock LLM client for now (can be replaced with real Claude client)
 	llmClient := ai.NewMockLLMClient(profiles)
 
 	return &AIHandler{
 		engine:          engine,
-		dialogueService: ai.NewDialogueService(llmClient),
 		moodSystem:      ai.NewMoodSystem(),
-		nlpService:      ai.NewNLPService(llmClient),
 		profiles:        profiles,
+		dialogueService: ai.NewDialogueService(llmClient),
+		nlpService:      ai.NewNLPService(llmClient),
+	}
+}
+
+// NewAIHandlerWithManager creates a new AI handler with service manager
+func NewAIHandlerWithManager(engine *game.Engine, manager *ai.ServiceManager) *AIHandler {
+	profiles := game.GetAllDialogueProfiles()
+
+	// Still create legacy services for backward compatibility
+	llmClient := ai.NewMockLLMClient(profiles)
+
+	return &AIHandler{
+		engine:          engine,
+		aiManager:       manager,
+		moodSystem:      ai.NewMoodSystem(),
+		profiles:        profiles,
+		dialogueService: ai.NewDialogueService(llmClient),
+		nlpService:      ai.NewNLPService(llmClient),
 	}
 }
 
@@ -43,11 +60,11 @@ func NewAIHandler(engine *game.Engine) *AIHandler {
 type DialogueRequest struct {
 	NPCID           string `json:"npc_id" binding:"required"`
 	PlayerInput     string `json:"player_input"`
-	NaturalLanguage string `json:"natural_language"` // Alternative to structured input
+	NaturalLanguage string `json:"natural_language"`
 }
 
-// DialogueResponse represents the dialogue API response
-type DialogueResponse struct {
+// DialogueAPIResponse represents the dialogue API response
+type DialogueAPIResponse struct {
 	Success bool                      `json:"success"`
 	Data    *models.AIDialogueResponse `json:"data,omitempty"`
 	Error   string                    `json:"error,omitempty"`
@@ -57,7 +74,7 @@ type DialogueResponse struct {
 func (h *AIHandler) GenerateDialogue(c *gin.Context) {
 	var req DialogueRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, DialogueResponse{
+		c.JSON(http.StatusBadRequest, DialogueAPIResponse{
 			Success: false,
 			Error:   err.Error(),
 		})
@@ -67,7 +84,7 @@ func (h *AIHandler) GenerateDialogue(c *gin.Context) {
 	// Get NPC profile
 	profile, exists := h.profiles[req.NPCID]
 	if !exists {
-		c.JSON(http.StatusNotFound, DialogueResponse{
+		c.JSON(http.StatusNotFound, DialogueAPIResponse{
 			Success: false,
 			Error:   "NPC not found",
 		})
@@ -77,26 +94,48 @@ func (h *AIHandler) GenerateDialogue(c *gin.Context) {
 	// Get game state
 	gameState := h.engine.GetState()
 
+	// Use new AI manager if available
+	if h.aiManager != nil {
+		h.generateDialogueWithManager(c, req, profile, gameState)
+		return
+	}
+
+	// Fallback to legacy implementation
+	h.generateDialogueLegacy(c, req, profile, gameState)
+}
+
+func (h *AIHandler) generateDialogueWithManager(c *gin.Context, req DialogueRequest, profile models.NPCDialogueProfile, gameState *models.GameState) {
 	// Get current mood
 	mood := h.moodSystem.GetMood(req.NPCID)
 
-	// Build dialogue context
-	dialogueCtx := ai.BuildDialogueContext(
-		req.NPCID,
-		profile,
-		gameState,
-		req.PlayerInput,
-		[]models.Interaction{}, // TODO: Track interactions
-		mood.CurrentMood,
-	)
+	// Calculate friendship hearts
+	hearts := 0
+	for _, npc := range gameState.NPCs {
+		if npc.ID == req.NPCID {
+			hearts = npc.Friendship / 250
+			break
+		}
+	}
 
-	// Generate dialogue with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Convert profile to character for new API
+	char := convertProfileToCharacter(req.NPCID, profile)
+
+	// Build dialogue request for new manager
+	dialogueReq := ai.DialogueRequest{
+		Character:        char,
+		PlayerInput:      req.PlayerInput,
+		CurrentMood:      mood.CurrentMood,
+		FriendshipHearts: hearts,
+		GameState:        gameState,
+	}
+
+	// Generate dialogue with timeout (use longer timeout for AI calls)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	response, err := h.dialogueService.GenerateDialogue(ctx, dialogueCtx)
+	response, err := h.aiManager.GenerateDialogue(ctx, dialogueReq)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, DialogueResponse{
+		c.JSON(http.StatusInternalServerError, DialogueAPIResponse{
 			Success: false,
 			Error:   err.Error(),
 		})
@@ -108,23 +147,92 @@ func (h *AIHandler) GenerateDialogue(c *gin.Context) {
 		h.moodSystem.SetMood(req.NPCID, response.MoodChange, mood.MoodValue)
 	}
 
-	c.JSON(http.StatusOK, DialogueResponse{
+	// Convert to legacy response format
+	aiResp := &models.AIDialogueResponse{
+		NPCID:            req.NPCID,
+		Dialogue:         response.Dialogue,
+		MoodChange:       response.MoodChange,
+		FriendshipDelta:  response.FriendshipDelta,
+		SuggestedActions: response.SuggestedActions,
+		SecretRevealed:   response.SecretRevealed,
+	}
+
+	c.JSON(http.StatusOK, DialogueAPIResponse{
+		Success: true,
+		Data:    aiResp,
+	})
+}
+
+func (h *AIHandler) generateDialogueLegacy(c *gin.Context, req DialogueRequest, profile models.NPCDialogueProfile, gameState *models.GameState) {
+	// Get current mood
+	mood := h.moodSystem.GetMood(req.NPCID)
+
+	// Build dialogue context
+	dialogueCtx := ai.BuildDialogueContext(
+		req.NPCID,
+		profile,
+		gameState,
+		req.PlayerInput,
+		[]models.Interaction{},
+		mood.CurrentMood,
+	)
+
+	// Generate dialogue with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	response, err := h.dialogueService.GenerateDialogue(ctx, dialogueCtx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, DialogueAPIResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	// Update mood if changed
+	if response.MoodChange != "" {
+		h.moodSystem.SetMood(req.NPCID, response.MoodChange, mood.MoodValue)
+	}
+
+	c.JSON(http.StatusOK, DialogueAPIResponse{
 		Success: true,
 		Data:    response,
 	})
 }
 
+// convertProfileToCharacter converts NPCDialogueProfile to Character
+func convertProfileToCharacter(id string, profile models.NPCDialogueProfile) *models.Character {
+	return &models.Character{
+		ID:              id,
+		Name:            profile.Name,
+		Role:            profile.Role,
+		Age:             profile.Age,
+		Traits:          profile.Traits,
+		Background:      profile.Background,
+		Values:          profile.Values,
+		Dislikes:        profile.Dislikes,
+		Fears:           profile.Fears,
+		Hopes:           profile.Hopes,
+		SpeechStyle:     profile.SpeechStyle,
+		Hobby:           profile.Hobby,
+		GiftPreferences: profile.GiftPreferences,
+		DialogueThemes:  profile.DialogueThemes,
+		Secrets:         profile.Secrets,
+		MaxFriendship:   2500,
+	}
+}
+
 // MoodResponse represents the mood API response
 type MoodResponse struct {
-	Success bool             `json:"success"`
-	Data    *models.NPCMood  `json:"data,omitempty"`
-	Error   string           `json:"error,omitempty"`
+	Success bool            `json:"success"`
+	Data    *models.NPCMood `json:"data,omitempty"`
+	Error   string          `json:"error,omitempty"`
 }
 
 // GetNPCMood handles GET /api/v1/npc/:id/mood
 func (h *AIHandler) GetNPCMood(c *gin.Context) {
 	npcID := c.Param("id")
-
 	mood := h.moodSystem.GetMood(npcID)
 
 	c.JSON(http.StatusOK, MoodResponse{
@@ -133,20 +241,81 @@ func (h *AIHandler) GetNPCMood(c *gin.Context) {
 	})
 }
 
+// ListProvidersResponse represents the list providers response
+type ListProvidersResponse struct {
+	Success  bool                        `json:"success"`
+	Providers map[string]ai.ProviderInfo `json:"providers"`
+	Default  string                      `json:"default"`
+}
+
+// ListProviders handles GET /api/v1/ai/providers
+func (h *AIHandler) ListProviders(c *gin.Context) {
+	if h.aiManager == nil {
+		c.JSON(http.StatusOK, ListProvidersResponse{
+			Success:   true,
+			Providers: map[string]ai.ProviderInfo{"mock": {Type: ai.ProviderTypeMock, Model: "mock", Available: true}},
+			Default:   "mock",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, ListProvidersResponse{
+		Success:   true,
+		Providers: h.aiManager.ListProviders(),
+		Default:   "", // Could store this in handler
+	})
+}
+
+// CheckProviderHealth handles GET /api/v1/ai/providers/:name/health
+func (h *AIHandler) CheckProviderHealth(c *gin.Context) {
+	name := c.Param("name")
+
+	if h.aiManager == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"provider": name,
+			"healthy": name == "mock",
+		})
+		return
+	}
+
+	provider, err := h.aiManager.GetProvider(name)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	healthErr := provider.HealthCheck(ctx)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"provider": name,
+		"healthy":  healthErr == nil,
+		"error":    healthErr,
+		"info":     provider.ProviderInfo(),
+	})
+}
+
 // NLPInterpretRequest represents a natural language interpretation request
 type NLPInterpretRequest struct {
 	PlayerInput string `json:"player_input" binding:"required"`
 	Context     string `json:"context"`
-	SessionID   string `json:"session_id"` // For maintaining conversation context
-	UseLLM      bool   `json:"use_llm"`    // Whether to use LLM for processing
+	SessionID   string `json:"session_id"`
+	UseLLM      bool   `json:"use_llm"`
 }
 
 // NLPInterpretResponse represents the NLP interpretation response
 type NLPInterpretResponse struct {
-	Success               bool                   `json:"success"`
-	Data                  *models.NLPResponse    `json:"data,omitempty"`
-	EnhancedResult        *ai.NLPResult          `json:"enhanced_result,omitempty"`
-	Error                 string                 `json:"error,omitempty"`
+	Success        bool                `json:"success"`
+	Data           *models.NLPResponse `json:"data,omitempty"`
+	EnhancedResult *ai.NLPResult       `json:"enhanced_result,omitempty"`
+	Error          string              `json:"error,omitempty"`
 }
 
 // InterpretNaturalLanguage handles POST /api/v1/ai/interpret
@@ -166,19 +335,17 @@ func (h *AIHandler) InterpretNaturalLanguage(c *gin.Context) {
 		sessionID = "default"
 	}
 
+	// Use new AI manager if available and LLM is requested
+	if h.aiManager != nil && req.UseLLM {
+		h.interpretWithManager(c, req, gameState)
+		return
+	}
+
+	// Fallback to legacy implementation
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Use enhanced NLP service
-	var nlpResult *ai.NLPResult
-	var err error
-
-	if req.UseLLM {
-		nlpResult, err = h.nlpService.ProcessWithLLM(ctx, req.PlayerInput, gameState, sessionID)
-	} else {
-		nlpResult, err = h.nlpService.Process(ctx, req.PlayerInput, gameState, sessionID)
-	}
-
+	nlpResult, err := h.nlpService.Process(ctx, req.PlayerInput, gameState, sessionID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, NLPInterpretResponse{
 			Success: false,
@@ -187,7 +354,6 @@ func (h *AIHandler) InterpretNaturalLanguage(c *gin.Context) {
 		return
 	}
 
-	// Convert to legacy NLPResponse format for backward compatibility
 	nlpResponse := &models.NLPResponse{
 		Understood:            nlpResult.Understood,
 		Intent:                nlpResult.Intent,
@@ -206,188 +372,62 @@ func (h *AIHandler) InterpretNaturalLanguage(c *gin.Context) {
 	})
 }
 
-// interpretInput performs simple natural language interpretation
-func (h *AIHandler) interpretInput(req models.NLPRequest) *models.NLPResponse {
-	input := req.PlayerInput
+func (h *AIHandler) interpretWithManager(c *gin.Context, req NLPInterpretRequest, gameState *models.GameState) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	// Simple pattern matching for demo
-	// In production, use LLM for interpretation
-
-	// Check for greeting + NPC name patterns
-	for _, npc := range req.NearbyNPCs {
-		if containsAny(input, []string{npc.Name, npc.ID}) {
-			if containsAny(input, []string{"你好", "hi", "hello", "嗨", "hey"}) {
-				return &models.NLPResponse{
-					Understood:   true,
-					Intent:       "talk",
-					TargetNPC:    npc.ID,
-					ResponseText: "你想和 " + npc.Name + " 对话",
-					Action: &models.Action{
-						Type: models.ActionTalk,
-						Params: models.ActionParams{
-							NPC: npc.ID,
-						},
-					},
-				}
-			}
-
-			if containsAny(input, []string{"送", "给", "gift", "give"}) {
-				// Find gift item in inventory
-				if len(req.PlayerInventory) > 0 {
-					return &models.NLPResponse{
-						Understood:   true,
-						Intent:       "gift",
-						TargetNPC:    npc.ID,
-						TargetItem:   req.PlayerInventory[0].ID,
-						ResponseText: "你想把 " + req.PlayerInventory[0].Name + " 送给 " + npc.Name,
-						Action: &models.Action{
-							Type: models.ActionGiveGift,
-							Params: models.ActionParams{
-								NPC:       npc.ID,
-								GiftItem: req.PlayerInventory[0].ID,
-							},
-						},
-					}
-				}
-			}
-		}
+	nluReq := ai.NLURequest{
+		Input:      req.PlayerInput,
+		GameState:  gameState,
+		Context:    req.Context,
 	}
 
-	// Check for movement patterns
-	if containsAny(input, []string{"去", "走", "move", "go"}) {
-		directions := map[string]models.Direction{
-			"上":    models.DirectionUp,
-			"下":    models.DirectionDown,
-			"左":    models.DirectionLeft,
-			"右":    models.DirectionRight,
-			"up":   models.DirectionUp,
-			"down": models.DirectionDown,
-			"left": models.DirectionLeft,
-			"right": models.DirectionRight,
-		}
-
-		for dirWord, dir := range directions {
-			if contains(input, dirWord) {
-				return &models.NLPResponse{
-					Understood:   true,
-					Intent:       "move",
-					ResponseText: "向 " + dirWord + " 移动",
-					Action: &models.Action{
-						Type: models.ActionMove,
-						Params: models.ActionParams{
-							Direction: dir,
-						},
-					},
-				}
-			}
-		}
+	response, err := h.aiManager.Understand(ctx, nluReq)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, NLPInterpretResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
 	}
 
-	// Check for quest patterns
-	if containsAny(input, []string{"任务", "quest", "接受", "accept"}) {
-		// Find available quest from nearby NPC
-		activeQuests := h.engine.GetState().Quests
-		for _, quest := range activeQuests {
-			if quest.Status == models.QuestStatusAvailable {
-				return &models.NLPResponse{
-					Understood:   true,
-					Intent:       "accept_quest",
-					ResponseText: "接受任务: " + quest.Name,
-					Action: &models.Action{
-						Type: models.ActionAcceptQuest,
-						Params: models.ActionParams{
-							QuestID: quest.ID,
-						},
-					},
-				}
-			}
-		}
+	// Convert ai.NLUResponse to models.NLPResponse
+	nlpResponse := &models.NLPResponse{
+		Understood:            response.Understood,
+		Intent:                response.Intent,
+		Action:                response.Action,
+		TargetNPC:             response.TargetNPC,
+		TargetItem:            response.TargetItem,
+		ResponseText:          response.ResponseText,
+		NeedsClarification:    response.NeedsClarification,
+		ClarificationQuestion: response.ClarificationQuestion,
 	}
 
-	// Default: try to talk to nearest NPC
-	if len(req.NearbyNPCs) > 0 {
-		return &models.NLPResponse{
-			Understood:   true,
-			Intent:       "talk",
-			TargetNPC:    req.NearbyNPCs[0].ID,
-			ResponseText: "你想和附近的 " + req.NearbyNPCs[0].Name + " 对话",
-			Action: &models.Action{
-				Type: models.ActionTalk,
-				Params: models.ActionParams{
-					NPC: req.NearbyNPCs[0].ID,
-				},
-			},
-		}
-	}
-
-	return &models.NLPResponse{
-		Understood:         false,
-		Intent:             "unknown",
-		ResponseText:       "我不太明白你的意思",
-		NeedsClarification: true,
-		ClarificationQuestion: "你想做什么？你可以:\n- 和NPC对话\n- 送礼物\n- 移动\n- 接受任务",
-	}
-}
-
-// Helper functions
-
-func getNearbyNPCs(state *models.GameState) []models.NPCState {
-	playerPos := state.Player.Position
-	var nearby []models.NPCState
-
-	for _, npc := range state.NPCs {
-		dx := npc.Position.X - playerPos.X
-		dy := npc.Position.Y - playerPos.Y
-		if dx*dx+dy*dy <= 25 { // Within 5 tiles
-			nearby = append(nearby, npc)
-		}
-	}
-
-	return nearby
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
-
-func containsAny(s string, substrs []string) bool {
-	for _, substr := range substrs {
-		if contains(s, substr) {
-			return true
-		}
-	}
-	return false
+	c.JSON(http.StatusOK, NLPInterpretResponse{
+		Success: true,
+		Data:    nlpResponse,
+	})
 }
 
 // ExecuteNLCommandRequest represents a request to execute a natural language command
 type ExecuteNLCommandRequest struct {
 	PlayerInput string `json:"player_input" binding:"required"`
 	SessionID   string `json:"session_id"`
-	AutoExecute bool   `json:"auto_execute"` // Whether to automatically execute the action
+	AutoExecute bool   `json:"auto_execute"`
 }
 
 // ExecuteNLCommandResponse represents the response from executing a natural language command
 type ExecuteNLCommandResponse struct {
-	Success        bool                   `json:"success"`
-	Interpretation *ai.NLPResult          `json:"interpretation"`
-	ActionExecuted bool                   `json:"action_executed"`
-	GameResponse   string                 `json:"game_response"`
-	GameState      *models.GameState      `json:"game_state,omitempty"`
-	Suggestions    []string               `json:"suggestions"`
-	Error          string                 `json:"error,omitempty"`
+	Success        bool              `json:"success"`
+	Interpretation *ai.NLPResult     `json:"interpretation"`
+	ActionExecuted bool              `json:"action_executed"`
+	GameResponse   string            `json:"game_response"`
+	GameState      *models.GameState `json:"game_state,omitempty"`
+	Suggestions    []string          `json:"suggestions"`
+	Error          string            `json:"error,omitempty"`
 }
 
 // ExecuteNLCommand handles POST /api/v1/ai/execute
-// It interprets natural language and optionally executes the action
 func (h *AIHandler) ExecuteNLCommand(c *gin.Context) {
 	var req ExecuteNLCommandRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -407,7 +447,6 @@ func (h *AIHandler) ExecuteNLCommand(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Process natural language
 	nlpResult, err := h.nlpService.Process(ctx, req.PlayerInput, gameState, sessionID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ExecuteNLCommandResponse{
@@ -424,7 +463,6 @@ func (h *AIHandler) ExecuteNLCommand(c *gin.Context) {
 		GameResponse:   nlpResult.ResponseText,
 	}
 
-	// Execute action if requested and action exists
 	if req.AutoExecute && nlpResult.Action != nil {
 		actionResult := h.executeAction(nlpResult.Action)
 		response.ActionExecuted = actionResult.Success
@@ -435,11 +473,7 @@ func (h *AIHandler) ExecuteNLCommand(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// executeAction executes an action and returns the result
 func (h *AIHandler) executeAction(action *models.Action) *models.ActionResult {
-	// This is a simplified version - in production, this would use the game engine
-	// to execute the action properly
-
 	result := &models.ActionResult{
 		Success: true,
 		Message: "Action executed",
@@ -463,23 +497,23 @@ func (h *AIHandler) executeAction(action *models.Action) *models.ActionResult {
 
 // ComplexInteractionRequest represents a complex interaction request
 type ComplexInteractionRequest struct {
-	Type        string `json:"type" binding:"required"`        // bargain, express_emotion, negotiate
-	NPCID       string `json:"npc_id" binding:"required"`
-	Content     string `json:"content"`                        // The interaction content
-	Amount      int    `json:"amount,omitempty"`               // For bargaining/trading
-	Emotion     string `json:"emotion,omitempty"`              // For expressing emotion
-	SessionID   string `json:"session_id"`
+	Type      string `json:"type" binding:"required"`
+	NPCID     string `json:"npc_id" binding:"required"`
+	Content   string `json:"content"`
+	Amount    int    `json:"amount,omitempty"`
+	Emotion   string `json:"emotion,omitempty"`
+	SessionID string `json:"session_id"`
 }
 
 // ComplexInteractionResponse represents the response to a complex interaction
 type ComplexInteractionResponse struct {
-	Success           bool                      `json:"success"`
-	NPCResponse       string                    `json:"npc_response"`
-	MoodChange        string                    `json:"mood_change,omitempty"`
-	FriendshipDelta   int                       `json:"friendship_delta"`
-	UpdatedPrice      int                       `json:"updated_price,omitempty"`    // For bargaining
-	NextOptions       []string                  `json:"next_options,omitempty"`
-	TriggeredEvent    string                    `json:"triggered_event,omitempty"`
+	Success         bool     `json:"success"`
+	NPCResponse     string   `json:"npc_response"`
+	MoodChange      string   `json:"mood_change,omitempty"`
+	FriendshipDelta int      `json:"friendship_delta"`
+	UpdatedPrice    int      `json:"updated_price,omitempty"`
+	NextOptions     []string `json:"next_options,omitempty"`
+	TriggeredEvent  string   `json:"triggered_event,omitempty"`
 }
 
 // HandleComplexInteraction handles complex interactions like bargaining
@@ -516,7 +550,6 @@ func (h *AIHandler) HandleComplexInteraction(c *gin.Context) {
 		response.NPCResponse = "我不太明白你的意思。"
 	}
 
-	// Update mood if changed
 	if response.MoodChange != "" {
 		h.moodSystem.SetMood(req.NPCID, response.MoodChange, 0)
 	}
@@ -524,11 +557,9 @@ func (h *AIHandler) HandleComplexInteraction(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// handleBargain handles bargaining interactions
 func (h *AIHandler) handleBargain(req ComplexInteractionRequest, profile models.NPCDialogueProfile, gameState *models.GameState) ComplexInteractionResponse {
 	response := ComplexInteractionResponse{Success: true}
 
-	// Calculate discount based on friendship
 	friendship := 0
 	for _, npc := range gameState.NPCs {
 		if npc.ID == req.NPCID {
@@ -537,10 +568,9 @@ func (h *AIHandler) handleBargain(req ComplexInteractionRequest, profile models.
 		}
 	}
 
-	discount := friendship / 500 // 1% discount per 500 friendship points, max ~5%
-
+	discount := friendship / 500
 	if discount > 20 {
-		discount = 20 // Max 20% discount
+		discount = 20
 	}
 
 	if discount > 0 {
@@ -557,11 +587,9 @@ func (h *AIHandler) handleBargain(req ComplexInteractionRequest, profile models.
 	return response
 }
 
-// handleEmotion handles emotional expression interactions
 func (h *AIHandler) handleEmotion(req ComplexInteractionRequest, profile models.NPCDialogueProfile, gameState *models.GameState) ComplexInteractionResponse {
 	response := ComplexInteractionResponse{Success: true}
 
-	// Find matching traits for response style
 	emotionResponse := map[string]string{
 		"happy":    "你看起来心情不错！今天有什么好事吗？",
 		"sad":      "怎么了？看你不太开心，需要聊聊吗？",
@@ -583,11 +611,9 @@ func (h *AIHandler) handleEmotion(req ComplexInteractionRequest, profile models.
 	return response
 }
 
-// handleNegotiate handles negotiation interactions
 func (h *AIHandler) handleNegotiate(req ComplexInteractionRequest, profile models.NPCDialogueProfile, gameState *models.GameState) ComplexInteractionResponse {
 	response := ComplexInteractionResponse{Success: true}
 
-	// Simple negotiation logic
 	if req.Amount > 0 {
 		if req.Amount < 100 {
 			response.NPCResponse = fmt.Sprintf("%d金币？嗯...可以接受。", req.Amount)

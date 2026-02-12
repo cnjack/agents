@@ -1,0 +1,66 @@
+# Stardew Agent Backend Configuration
+# Copy this file to local.yaml and fill in your API keys
+
+server:
+  port: 8080
+  mode: debug  # debug, release, test
+
+ai:
+  # Default provider: openai_compatible, mock
+  default_provider: openai_compatible
+
+  providers:
+    # OpenAI Compatible API (智谱 GLM-4, DeepSeek, etc.)
+    openai_compatible:
+      enabled: true
+      # API endpoint (智谱 GLM API)
+      endpoint: "https://open.bigmodel.cn/api/paas/v4"
+      # Your API key (DO NOT commit real keys)
+      api_key: "YOUR_API_KEY_HERE"
+      # Model name
+      model: "glm-4"
+      # Max tokens for response
+      max_tokens: 4096
+      # Temperature (0.0 - 1.0)
+      temperature: 0.7
+      # Request timeout in seconds
+      timeout: 60
+      # Max retries on failure
+      max_retries: 3
+
+    # Mock provider for testing
+    mock:
+      enabled: true
+      # Random response delay in milliseconds
+      delay_ms: 100
+
+  # Cache settings
+  cache:
+    enabled: true
+    ttl_seconds: 3600
+    max_entries: 1000
+
+database:
+  # MongoDB settings
+  mongodb:
+    enabled: false
+    uri: "mongodb://localhost:27017"
+    database: "stardew_agent"
+
+  # Redis settings
+  redis:
+    enabled: false
+    addr: "localhost:6379"
+    password: ""
+    db: 0
+
+  # SQLite for development
+  sqlite:
+    enabled: true
+    path: "./data/stardew_agent.db"
+
+logging:
+  level: info  # debug, info, warn, error
+  format: json  # json, text
+  output: stdout  # stdout, file
+  file_path: "./logs/app.log"

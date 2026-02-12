@@ -40,3 +40,9 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+
+# Config files with secrets
+config/local.yaml
+config/*.local.yaml
+backend/config/local.yaml
+backend/config/*.local.yaml
