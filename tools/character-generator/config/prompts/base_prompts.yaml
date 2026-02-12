@@ -1,0 +1,75 @@
+# Base prompts templates
+
+# Quality modifiers
+quality:
+  high:
+    - "masterpiece"
+    - "best quality"
+    - "highly detailed"
+    - "ultra detailed"
+    - "8k resolution"
+    - "sharp focus"
+
+  medium:
+    - "good quality"
+    - "detailed"
+    - "high resolution"
+
+# Anime style modifiers
+anime_style:
+  standard:
+    - "anime style"
+    - "cel shaded"
+    - "anime artwork"
+
+  ghibli:
+    - "studio ghibli style"
+    - "miyazaki style"
+    - "soft watercolor"
+
+  game:
+    - "game art"
+    - "visual novel style"
+    - "rpg character art"
+
+# Character sheet templates
+character_sheet:
+  full_body:
+    template: "character sheet, full body, multiple angles, front view, side view, back view, white background"
+    resolution: [1344, 768]
+
+  portrait:
+    template: "portrait, head shot, facing viewer, simple background"
+    resolution: [512, 512]
+
+  expressions:
+    template: "expression sheet, multiple expressions, happy, sad, angry, surprised, neutral"
+    resolution: [1024, 768]
+
+  poses:
+    template: "pose sheet, multiple poses, standing, sitting, walking"
+    resolution: [1344, 768]
+
+  turnaround:
+    template: "character turnaround, front view, side view, back view, three-quarter view"
+    resolution: [1536, 512]
+
+# Body type descriptions
+body_types:
+  slim: "slim body, slender build"
+  average: "average build, normal body"
+  athletic: "athletic body, fit build"
+  plump: "slightly plump body"
+  muscular: "muscular build"
+
+# Age descriptions
+age_descriptions:
+  young: "young adult, youthful appearance"
+  middle: "middle-aged, mature appearance"
+  senior: "elderly, aged appearance, wrinkles"
+
+# Gender descriptions
+gender_descriptions:
+  male: "male, man"
+  female: "female, woman"
+  androgynous: "androgynous appearance"

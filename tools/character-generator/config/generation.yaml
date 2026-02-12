@@ -1,0 +1,71 @@
+# Generation configuration
+
+# Default settings
+defaults:
+  model: "anything_v5"
+  steps: 28
+  cfg_scale: 7.0
+  sampler: "DPM++ 2M Karras"
+  width: 1024
+  height: 1024
+  batch_size: 4
+  seed: -1  # -1 for random
+
+# Template-specific overrides
+templates:
+  full_body:
+    width: 1344
+    height: 768
+    steps: 30
+    cfg_scale: 7.5
+
+  portrait:
+    width: 512
+    height: 512
+    steps: 25
+    cfg_scale: 7.0
+
+  expressions:
+    width: 1024
+    height: 768
+    steps: 28
+    cfg_scale: 7.0
+
+  turnaround:
+    width: 1536
+    height: 512
+    steps: 30
+    cfg_scale: 7.5
+
+# Output settings
+output:
+  base_dir: "output/characters"
+  save_metadata: true
+  save_generation_info: true
+  create_subdirs: true
+  image_format: "PNG"
+  jpeg_quality: 95
+
+# Batch generation settings
+batch:
+  num_variations: 2
+  templates_per_character:
+    - "full_body"
+    - "portrait"
+    - "expressions"
+
+# Quality filtering
+quality_filter:
+  enabled: false
+  min_score: 0.7
+  use_face_detection: true
+  min_face_confidence: 0.8
+
+# ControlNet settings
+controlnet:
+  enabled: false
+  models:
+    - "openpose"
+  strength: 0.7
+  start_step: 0
+  end_step: -1

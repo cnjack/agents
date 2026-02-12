@@ -1,0 +1,68 @@
+# Model configurations
+
+base_models:
+  anything_v5:
+    path: "models/base/AnythingV5_v5.safetensors"
+    type: "sd15"
+    description: "通用动漫风格模型"
+    resolution: [512, 768]
+    recommended_steps: [20, 28]
+
+  counterfeit_xl:
+    path: "models/base/CounterfeitXL_v10.safetensors"
+    type: "sdxl"
+    description: "高质量动漫SDXL模型"
+    resolution: [1024, 1024]
+    recommended_steps: [25, 35]
+
+  illustrious:
+    path: "models/base/illustrious_v2.safetensors"
+    type: "sdxl"
+    description: "高质量动漫插图模型"
+    resolution: [1024, 1024]
+    recommended_steps: [25, 35]
+
+lora_models:
+  character_maker:
+    path: "models/lora/character_sheet_maker.safetensors"
+    weight: 0.7
+    trigger_word: "character sheet"
+    description: "角色设定图生成辅助"
+
+  anime_detailer:
+    path: "models/lora/anime_detailer.safetensors"
+    weight: 0.5
+    description: "动漫细节增强"
+
+  expression_helper:
+    path: "models/lora/expression_sheet.safetensors"
+    weight: 0.6
+    trigger_word: "expression sheet"
+    description: "表情图生成辅助"
+
+vae:
+  anime:
+    path: "models/vae/anime.vae.safetensors"
+    description: "动漫专用VAE"
+
+controlnet:
+  openpose:
+    path: "models/controlnet/control_v11p_sd15_openpose.safetensors"
+    description: "姿势控制"
+
+  canny:
+    path: "models/controlnet/control_v11p_sd15_canny.safetensors"
+    description: "边缘控制"
+
+  depth:
+    path: "models/controlnet/control_v11p_sd15_depth.safetensors"
+    description: "深度控制"
+
+# Default generation settings
+defaults:
+  model: "anything_v5"
+  steps: 28
+  cfg_scale: 7.0
+  sampler: "DPM++ 2M Karras"
+  width: 1024
+  height: 1024
